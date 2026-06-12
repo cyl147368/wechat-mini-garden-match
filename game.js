@@ -1,7 +1,9 @@
 "use strict";
 
 var Logic = require("./js/logic");
+var CloudState = require("./js/cloud-state");
 
+var GAME_ID = "wechat-mini-garden-match";
 var STORAGE_KEY = "wechat-mini-garden-match-state-v1";
 var PI2 = Math.PI * 2;
 
@@ -409,11 +411,13 @@ function extractTouch(event) {
   return { x: x, y: y };
 }
 
-function saveState(wxApi, state) {
-  if (!wxApi || !wxApi.setStorageSync) return;
-  safe(function () {
-    wxApi.setStorageSync(STORAGE_KEY, state);
-  }, null);
+function saveState(wxApi, state, cloudSync) {
+  if (wxApi && wxApi.setStorageSync) {
+    safe(function () {
+      wxApi.setStorageSync(STORAGE_KEY, state);
+    }, null);
+  }
+  if (cloudSync && typeof cloudSync.save === "function") cloudSync.save(state);
 }
 
 function loadState(wxApi) {
@@ -444,8 +448,15 @@ function createRuntime(options) {
     layout: computeLayout(system.width, system.height),
     selected: null,
     hint: null,
-    touchStart: null
+    touchStart: null,
+    cloudSync: null
   };
+  runtime.cloudSync = CloudState.create({
+    wx: wxApi,
+    gameId: GAME_ID,
+    storageKey: STORAGE_KEY,
+    sanitize: Logic.sanitizeState
+  });
 
   function resize() {
     system = getSystemInfo(wxApi);
@@ -467,11 +478,18 @@ function createRuntime(options) {
     render(runtime.ctx, runtime.state, runtime.layout, { selected: runtime.selected, hint: runtime.hint });
   }
 
+  function applyRemoteState(remoteState) {
+    if (!remoteState) return;
+    runtime.state = Logic.sanitizeState(remoteState);
+    saveState(wxApi, runtime.state, null);
+    redraw();
+  }
+
   function commit(nextState) {
     runtime.state = Logic.sanitizeState(nextState);
     runtime.selected = null;
     runtime.hint = null;
-    saveState(wxApi, runtime.state);
+    saveState(wxApi, runtime.state, runtime.cloudSync);
     redraw();
   }
 
@@ -541,14 +559,25 @@ function createRuntime(options) {
       canvas.addEventListener("pointerdown", onTouchStart);
       canvas.addEventListener("pointerup", onTouchEnd);
     }
-    if (wxApi && wxApi.onHide) wxApi.onHide(function () { saveState(wxApi, runtime.state); });
-    if (wxApi && wxApi.onShow) wxApi.onShow(function () { runtime.state = loadState(wxApi); redraw(); });
+    if (wxApi && wxApi.onHide) wxApi.onHide(function () { saveState(wxApi, runtime.state, runtime.cloudSync); });
+    if (wxApi && wxApi.onShow) wxApi.onShow(function () {
+      if (runtime.cloudSync && runtime.cloudSync.load(function (remoteState) {
+        if (remoteState) applyRemoteState(remoteState);
+        else {
+          runtime.state = loadState(wxApi);
+          redraw();
+        }
+      })) return;
+      runtime.state = loadState(wxApi);
+      redraw();
+    });
     if (wxApi && wxApi.onWindowResize) wxApi.onWindowResize(function () { resize(); redraw(); });
   }
 
   resize();
   bind();
   redraw();
+  if (runtime.cloudSync) runtime.cloudSync.start(applyRemoteState);
   runtime.redraw = redraw;
   runtime.tap = onTap;
   runtime.touchStartHandler = onTouchStart;

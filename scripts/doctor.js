@@ -12,8 +12,11 @@ var fullZip = path.join(outputRoot, "wechat-mini-garden-match.zip");
 
 var expectedReleaseFiles = [
   "app.json",
+  "cloudfunctions/playerState/index.js",
+  "cloudfunctions/playerState/package.json",
   "game.js",
   "game.json",
+  "js/cloud-state.js",
   "js/logic.js",
   "pages/index/index.js",
   "pages/index/index.json",
@@ -58,6 +61,7 @@ var project = readJson(path.join(releaseDir, "project.config.json"));
 var app = readJson(path.join(releaseDir, "app.json"));
 if (project.compileType !== "game") fail("compileType must be game");
 if (project.appid !== "touristappid") fail("release appid must be touristappid");
+if (project.cloudfunctionRoot !== "cloudfunctions/") fail("cloudfunctionRoot must point at cloudfunctions/");
 if (project.setting && project.setting.packNpmManually) fail("release should not require npm packing");
 
 var game = readJson(path.join(releaseDir, "game.json"));
@@ -68,8 +72,15 @@ if (game.deviceOrientation !== "portrait") fail("game must be portrait");
 
 var source = fs.readFileSync(path.join(releaseDir, "game.js"), "utf8");
 if (source.indexOf("createCanvas") === -1) fail("game.js must create a canvas");
+if (source.indexOf("CloudState") === -1) fail("cloud state sync should be wired into game.js");
 if (source.indexOf("花房订单") === -1) fail("new visual/content identity missing");
 if (source.indexOf("wechat-mini-arcade") !== -1) fail("old arcade project name leaked into new game");
+
+var cloudSource = fs.readFileSync(path.join(releaseDir, "js", "cloud-state.js"), "utf8");
+var functionSource = fs.readFileSync(path.join(releaseDir, "cloudfunctions", "playerState", "index.js"), "utf8");
+if (cloudSource.indexOf("wxApi.login") === -1) fail("cloud state should call wx.login");
+if (cloudSource.indexOf("callFunction") === -1) fail("cloud state should call a cloud function");
+if (functionSource.indexOf("OPENID") === -1) fail("cloud function should persist state by WeChat OPENID");
 
 var logic = require(path.join(releaseDir, "js/logic.js"));
 var state = logic.startLevel(0, 1234);
