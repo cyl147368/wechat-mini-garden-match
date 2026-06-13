@@ -2,6 +2,8 @@
 
 var Logic = require("./js/logic");
 var CloudState = require("./js/cloud-state");
+var CloudConfig = require("./js/cloud-config");
+var SessionUI = require("./js/session-ui");
 
 var GAME_ID = "wechat-mini-garden-match";
 var STORAGE_KEY = "wechat-mini-garden-match-state-v1";
@@ -385,7 +387,7 @@ function drawOverlay(ctx, state, layout) {
   drawText(ctx, copy, layout.width / 2, y + 72, { size: 14, color: "#66756B", align: "center", maxWidth: w - 32, weight: "500" });
 }
 
-function render(ctx, state, layout, ui) {
+function render(ctx, state, layout, ui, cloudStatus) {
   ctx.fillStyle = makeBackground(ctx, layout.width, layout.height);
   call(ctx, "fillRect", [0, 0, layout.width, layout.height]);
   drawHeader(ctx, state, layout);
@@ -400,6 +402,7 @@ function render(ctx, state, layout, ui) {
   });
   drawButtons(ctx, state, layout);
   drawOverlay(ctx, state, layout);
+  SessionUI.draw(ctx, layout, cloudStatus || {});
 }
 
 function extractTouch(event) {
@@ -455,6 +458,7 @@ function createRuntime(options) {
     wx: wxApi,
     gameId: GAME_ID,
     storageKey: STORAGE_KEY,
+    env: CloudConfig.envId,
     sanitize: Logic.sanitizeState
   });
 
@@ -475,7 +479,7 @@ function createRuntime(options) {
 
   function redraw() {
     if (!runtime.ctx) return;
-    render(runtime.ctx, runtime.state, runtime.layout, { selected: runtime.selected, hint: runtime.hint });
+    render(runtime.ctx, runtime.state, runtime.layout, { selected: runtime.selected, hint: runtime.hint }, runtime.cloudSync && runtime.cloudSync.getStatus());
   }
 
   function applyRemoteState(remoteState) {
@@ -505,6 +509,11 @@ function createRuntime(options) {
   }
 
   function onTap(point) {
+    if (runtime.cloudSync && SessionUI.hit(runtime.layout, point.x, point.y)) {
+      runtime.cloudSync.requestUserProfile(CloudConfig.profileDesc, redraw);
+      return;
+    }
+
     var button = buttonFromPoint(runtime.layout, point.x, point.y);
     if (button) {
       onButton(button);
